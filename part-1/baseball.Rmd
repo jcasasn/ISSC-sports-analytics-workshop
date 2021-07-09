@@ -1,0 +1,109 @@
+## Intro to Sabermetrics
+
+Load libraries:
+```{r}
+library(tidyverse)
+```
+
+Read in data:
+```{r}
+player_stats = read_csv("https://github.com/jcasasn/ISSC-sports-analytics-workshop/raw/main/part-1/player_data.csv")
+# Data from baseball-reference.com
+```
+
+
+Get average salary and value for 1 WAR by year, determine a “deserved” salary for each player:
+```{r}
+war_stats = player_stats %>% 
+  group_by(year) %>% 
+  summarise(war_value = sum(sal)/sum(war)) %>% 
+  right_join(player_stats, by = "year") %>% 
+  mutate(deserved_sal = war_value * war)
+```
+
+
+Compare actual vs “deserved” salaries of players:
+```{r}
+jays = war_stats %>%
+  filter(team == "TOR", year == 2015) %>%
+  arrange(desc(sal)) %>%
+  head(10)
+
+
+jays_long = jays %>%
+  pivot_longer(
+    cols = c("sal", "deserved_sal"),
+    names_to = "sal_type",
+    values_to = "sal"
+  ) %>%
+  mutate(sal_type = case_when(
+    sal_type == "sal" ~ "Actual",
+    sal_type == "deserved_sal" ~ '"Deserved"'
+  ))
+```
+
+
+Plot:
+```{r}
+library(scales)
+
+jays_long %>%
+  ggplot(aes(x = name, y = sal, fill = sal_type)) +
+  geom_bar(position = "dodge",
+           stat = "identity",
+           width = 0.7) +
+  labs(
+    title = "Actual vs \"Deserved\" Salary According to WAR",
+    subtitle = 
+      "For the 10 highest paid players in the Toronto Blue Jays in 2015",
+    caption = "Source: Baseball-Reference",
+    x = "Player",
+    y = "Salary (in millions of dollars)"
+  ) +
+  theme_minimal() +
+  theme(legend.title = element_blank(),
+        panel.grid.major.x = element_blank()) +
+  scale_y_continuous(labels = label_number(scale = 1e-6)) +
+  scale_fill_brewer(palette = "Dark2")
+```
+
+
+Make it into a function:
+```{r}
+get_deserved_sal = function(team_name, team_year){
+  war_stats %>%
+    filter(team == team_name, year == team_year) %>%
+    arrange(desc(sal)) %>%
+    head(10) %>%
+    pivot_longer(
+      cols = c("sal", "deserved_sal"),
+      names_to = "sal_type",
+      values_to = "sal"
+    ) %>%
+    mutate(sal_type = case_when(
+      sal_type == "sal" ~ "Actual",
+      sal_type == "deserved_sal" ~ '"Deserved"'
+    )) %>%
+    ggplot(aes(x = name, y = sal, fill = sal_type)) +
+    geom_bar(position = "dodge",
+             stat = "identity",
+             width = 0.7) +
+    labs(
+      title = "Actual vs \"Deserved\" Salary According to WAR",
+      subtitle = paste("For the 10 highest paid players in", team_name, "in",
+                       team_year),
+      caption = "Source: Baseball-Reference",
+      x = "Player",
+      y = "Salary (in millions of dollars)"
+    ) +
+    theme_minimal() +
+    theme(legend.title = element_blank(),
+          panel.grid.major.x = element_blank()) +
+    scale_y_continuous(labels = label_number(scale = 1e-6)) +
+    scale_fill_brewer(palette = "Dark2")
+}
+
+get_deserved_sal("BOS", 2018)
+```
+
+
