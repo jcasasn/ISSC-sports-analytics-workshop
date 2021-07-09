@@ -1,0 +1,331 @@
+---
+title: "Vizualizing Basketball Shots with ggplot2"
+author: "Colin Conant"
+date: "July 9, 2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include = FALSE, warning = FALSE}
+# The list of libraries required
+# Un-comment the following lines to install the required packages
+
+#install.packages("tidyverse")
+#install.packages("grid")
+#install.packages("jpeg")
+#install.packages("plotly")
+#install.packages("MASS")
+
+library(tidyverse)  # data manipulation + ggplot2 and others
+library(grid)       # for court image read in
+library(jpeg)       # Reading jpeg files
+library(plotly)     # Another graphing library
+library(MASS)       # Kernel Density Estimates
+```
+
+```{r, include=FALSE, warning=FALSE}
+# Read in the datasets
+# Subsets of data from a dataset from data.world nba shots 1997-2020
+Curry_URL<- "https://raw.githubusercontent.com/jcasasn/ISSC-sports-analytics-workshop/main/Curry.csv"
+Houston_Rockets_URL <- "https://raw.githubusercontent.com/jcasasn/ISSC-sports-analytics-workshop/main/Houston_Rockets.csv"
+LeBron_Lakers_URL <- "https://raw.githubusercontent.com/jcasasn/ISSC-sports-analytics-workshop/main/LeBron_Lakers.csv"
+Durant_Thunder_URL <- "https://raw.githubusercontent.com/jcasasn/ISSC-sports-analytics-workshop/main/Durant_Thunder.csv"
+Durant_Warriors_URL <- "https://raw.githubusercontent.com/jcasasn/ISSC-sports-analytics-workshop/main/Durant_Warriors.csv"
+
+Curry <- read_csv(url(Curry_URL))
+Houston_Rockets <- read_csv(url(Houston_Rockets_URL))
+LeBron_Lakers <- read_csv(url(LeBron_Lakers_URL))
+Durant_Thunder <- read_csv(url(Durant_Thunder_URL))
+Durant_Warriors <- read_csv(url(Durant_Warriors_URL))
+```
+
+# Part I: Point Graphs
+
+Let's try and make a simple point graph!
+
+For this, let's try to display shots LeBron James has taken as a player for the Los Angeles Lakers.
+
+Let's display LeBron's shots.
+```{r}
+head(LeBron_Lakers)
+```
+
+```{r}
+LeBron_Lakers %>% 
+  ggplot(aes(x = `X Location`, y = `Y Location`)) + 
+  geom_point()
+```
+
+
+We want to show which shots were made and which were missed. We can do this using the Shot Made Flag column in our data. But first, we must ensure that the variable is read as a factor variable and not interpreted as numeric values of 0 and 1.
+```{r}
+LeBron_Lakers$`Shot Made Flag` <- factor(LeBron_Lakers$`Shot Made Flag`)
+```
+
+Now we can plot.
+```{r}
+LeBron_Lakers %>% 
+  ggplot(aes(x = `X Location`, y = `Y Location`, color = `Shot Made Flag`)) + 
+  geom_point()
+```
+
+Ok, it is color coding by make or miss, but we need better colors than this.
+Let's make a quick custom color pallette using the Laker's colors.
+We can find the hexcode values online to help us out.
+```{r}
+lakers_pallette <- c("#552583","#FDB927","#000000") 
+```
+
+This should look a little more interesting.
+
+```{r}
+LeBron_Lakers %>% 
+  ggplot(aes(x = `X Location`, y = `Y Location`, color = `Shot Made Flag`)) + 
+  geom_point()+
+  scale_color_manual(values = lakers_pallette)
+```
+
+A grid is not as exciting, and the axes don't give intuitive data. We want to see what it looks like on a basketball court.
+Let's grab the court image in the workspace and implement it. For this we need the packages 'grid' and 'jpeg'.
+We can do this by saving the image as an object.
+```{r}
+court <- readJPEG("Put file path of court image here")
+court <- rasterGrob(court, width=unit(1,"npc"), height=unit(1,"npc")) # Use 'grid' and 'jpeg' packages here for the rasterGrob and readJPEG functions
+```
+
+We must match the court image to the X and Y coordinates in the data.
+The X coordinates spans from (-250,250).
+The Y coordinates for a half court image spans from (-52, 418).
+By passing these values to a function called annotation_custom() from ggplot2, we can properly fit an image of a basketball court on the plot.
+
+```{r, warning=FALSE}
+LeBron_Lakers %>% 
+  ggplot(aes(x = `X Location`, y = `Y Location`, color = `Shot Made Flag`)) + 
+  annotation_custom(court, -250, 250, -52, 418)+  # Line that applies the image, and specifies the extent of the image
+  geom_point()+
+  scale_color_manual(values = lakers_pallette)+
+  xlim(-250, 250) + # fix the plot's extent to match the image
+  ylim(-52, 418)    # fix the plot's extent to match the image
+```
+
+Nice! Now we have some context to the point locations.
+
+Now with another couple of lines, we can remove the grid and fix the aspect ratio.
+```{r,warning=FALSE}
+LeBron_Lakers %>% 
+  ggplot(aes(x = `X Location`, y = `Y Location`, color = `Shot Made Flag`)) + 
+  annotation_custom(court, -250, 250, -52, 418)+
+  geom_point()+
+  scale_color_manual(values = lakers_pallette, labels=c("Missed", "Made"))+
+  xlim(-250, 250) +
+  ylim(-52, 418)+
+  coord_equal()+   # fix the aspect ratio
+  theme_void()+    # remove the grid and axes
+  ggtitle("LeBron James shots as a Laker 2018-2020")
+
+```
+
+# Part II: 2 Dimensional Summary displays
+
+What if we want to display shots by general areas on the court?
+Let's look at Field Goal % for different areas on the court.
+We can use Steph Curry of the Golden State Warriors as our example for this section.
+
+We need to have a way of calculating field goal %.
+We can use this simple function for FG%.
+```{r}
+get_percentage <- function(x){
+  (sum(x)/length(x))
+}
+```
+
+To best model this, let's use similar code to what we did in part 1, but instead of geom_point(), we can use stat_summary_hex() from the ggplot2 package.
+The function stat_summary_hex() is useful because it accumulates the data using a function that we provide as a parameter and displays it in hexagonal bins.
+To use it, attach it to a ggplot and input the function as stat_summary_hex(fun = ______).
+
+```{r, warning=FALSE}
+Curry %>% 
+  ggplot(aes(x = `X Location`, y = `Y Location`, z = `Shot Made Flag`)) + 
+  annotation_custom(court, -250, 250, -52, 418)+
+  stat_summary_hex(fun = get_percentage)+
+  xlim(-250, 250) +
+  ylim(-52, 418)+
+  coord_equal()+
+  theme_void()
+```
+
+A couple problems, we cant see the court anymore because the hexagons are covering it, and the size of the hexagons is too small.
+These can be adjusted through optional parameters for stat_summary_hex().
+The 'bins' parameter refers to the maximum amount of hexagons that can be in a row.
+The 'alpha' parameter adjust transparency.
+
+```{r, warning=FALSE}
+Curry %>% 
+  ggplot(aes(x = `X Location`, y = `Y Location`, z = `Shot Made Flag`)) + 
+  annotation_custom(court, -250, 250, -52, 418)+
+  stat_summary_hex(fun = get_percentage, bins = 6, alpha = 0.5)+
+  xlim(-250, 250) +
+  ylim(-52, 418)+
+  coord_equal()+
+  theme_void()
+```
+
+A monochromatic blue graph is not as nice looking, we can do better.
+We can add a red-green color gradient to the bins to easier visualize the differences in efficiency.
+```{r,warning=FALSE}
+Curry %>% 
+  ggplot(aes(x = `X Location`, y = `Y Location`, z = `Shot Made Flag`)) + 
+  annotation_custom(court, -250, 250, -52, 418)+
+  stat_summary_hex(fun = get_percentage, bins = 6, alpha = 0.5)+
+  scale_fill_gradient(low = "red", high = "green", name = "Field Goal Probability")+
+  xlim(-250, 250) +
+  ylim(-52, 418)+
+  coord_equal()+
+  theme_void()
+```
+
+What if we wanted to use square bins, instead of hexagonal bins?
+Use stat_summary_2d() instead.
+```{r,warning=FALSE}
+Curry %>% 
+  ggplot(aes(x = `X Location`, y = `Y Location`, z = `Shot Made Flag`)) + 
+  annotation_custom(court, -250, 250, -52, 418)+
+  stat_summary_2d(fun = get_percentage, alpha = 0.5)+
+  scale_fill_gradient(low = "red", high = "green", name = "Field Goal Probability")+
+  xlim(-250, 250) +
+  ylim(-52, 418)+
+  coord_equal()+
+  theme_void()+
+  ggtitle("Steph Curry's Career Shooting Percentage")
+```
+
+# Part III: 2 dimensional Kernel Density Displays
+
+For this next section we can look at a team's data, rather than an individual's data.
+Let's look at the Houston Rockets 2018-2019 season
+To create a density heat map, we can use Kernel Density estimation, rather than more rigid histograms
+Instead of geom_point(), stat_summary_hex, or stat_summary_2d(), we can use geom_density_2d_filled()
+
+```{r,warning=FALSE}
+Houston_Rockets %>% 
+  ggplot(aes(x = `X Location`, y = `Y Location`)) +
+  annotation_custom(court, -250, 250, -52, 418)+
+  geom_density2d_filled()+
+  xlim(-250, 250) +
+  ylim(-52, 418)+
+  coord_equal() +
+  theme_void()
+```
+
+Interestingly there are so many shots at the basket, it outweighs the other shots completely.
+
+Again, we also can't see the court.
+
+Why don't we look at shots away from under the basket, more than 8 feet away.
+
+```{r}
+Houston_Rockets <- Houston_Rockets %>% 
+  filter(Houston_Rockets$`Shot Distance` > 8) # Filter for shots further than 8 feet from the basket
+```
+
+By Using the alpha parameter, as well as removing the legend, we can clean this heat map up a bit.
+```{r,warning=FALSE}
+Houston_Rockets %>% 
+  ggplot(aes(x = `X Location`, y = `Y Location`)) +
+  annotation_custom(court, -250, 250, -52, 418)+
+  geom_density2d_filled(alpha = 0.5, show.legend = FALSE)+
+  xlim(-250, 250) +
+  ylim(-52, 418)+
+  coord_equal() +
+  theme_void()+
+  ggtitle("Houston Rockets' Outside Shots, 2018-2019")
+  
+```
+
+Now we can see a little more of the shot selection variation.
+
+# Part IV: 3 dimensional Kernel Density plots
+
+Density plots can also be displayed in 3D.
+
+Let's use Kevin Durant as an example.
+
+Kevin Durant Played for 2 different teams in our data set, lets compare his shot charts for both.
+
+Filter out shots at the basket, and those more than 30 feet away.
+```{r}
+Durant_Thunder <- Durant_Thunder %>% filter(`Shot Distance` > 8 & `Shot Distance` < 30)
+Durant_Warriors <- Durant_Warriors %>% filter(`Shot Distance` > 8 & `Shot Distance` < 30)
+```
+
+To make these 3D plots, we will be using a package called 'plotly' instead of 'ggplot'.
+
+In order to use a 3D density plot, your third dimension, the z axis argument, must be a 2d numeric matrix.
+
+We need to make a 2D kernel density matrix first:
+
+Name the X and Y coordinates for clarity
+```{r}
+Thunder_x <- Durant_Thunder$`X Location`
+Thunder_y <- Durant_Thunder$`Y Location`
+
+Warrior_x <- Durant_Warriors$`X Location`
+Warrior_y <- Durant_Warriors$`Y Location`
+```
+
+Create the matrices using the kde2d() function from the 'MASS' library
+```{r}
+Thunder_density <- kde2d(Thunder_x, Thunder_y)
+
+Warrior_density <- kde2d(Warrior_x, Warrior_y)
+```
+
+Create a color pallette for each team to distinguish the graphs
+```{r}
+thunder_pallette <- c("#002D62","#007AC1", "#FDBB30", "#EF3B24")
+
+warriors_pallette <- c("#26282A","#1D428A", "#FFC72C")
+```
+
+Using the plot_ly() function, we can assign the x,y, and z variables
+Using the pipe operator and the add_surface() function, we can create the 3D Kernel Density Estimate for each team
+The add_surface() is the plotly equivalent of geom.
+```{r}
+# Thunder Plot
+plot_ly(x=Thunder_density$Thunder_x, y=Thunder_density$Thunder_y, z=Thunder_density$z) %>% 
+  add_surface(colors = thunder_pallette)
+
+# Warrior Plot
+plot_ly(x=Warrior_density$Warrior_x, y=Warrior_density$Warrior_y, z=Warrior_density$z) %>% 
+  add_surface(colors = warriors_pallette)
+
+```
+
+# Some links and References:
+#### Data:
+https://data.world/sportsvizsunday/june-2020-nba-shots-1997-2019
+
+https://www.owenlhjphillips.com/new-blog/2020/6/11/how-to-download-nba-shot-data-with-r
+
+#### Chart/Graph resources:
+https://thedatagame.com.au/2015/09/27/how-to-create-nba-shot-charts-in-r/
+
+https://toddwschneider.com/posts/ballr-interactive-nba-shot-charts-with-r-and-shiny/
+
+https://www.r-bloggers.com/2019/06/mapping-nba-shot-locations/
+
+https://bookdown.org/jerrycheewy/portfolio_analytics_-_build_better_heatmaps/IntroHeatmap.html
+
+https://themockup.blog/posts/2020-08-28-heatmaps-in-ggplot2/
+
+https://www.r-graph-gallery.com/2d-density-chart.html
+
+#### Some open source github repo basketball visualization R packages:
+https://github.com/rossdrucker/sportyR # this is a package for creating fields/courts/rinks etc.
+
+https://github.com/toddwschneider/ballr # an excellent basketball visualization package that is better than what I could teach generally here.  
